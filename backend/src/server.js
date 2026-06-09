@@ -37,6 +37,7 @@ app.use('/api/orders', require('./routes/orders'));
 app.use('/api/members', require('./routes/members'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/statistics', require('./routes/statistics'));
+app.use('/api/notifications', require('./routes/notifications'));
 
 app.use((err, req, res, next) => {
   logger.error(`请求错误: ${req.method} ${req.url}`, err);

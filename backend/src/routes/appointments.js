@@ -87,6 +87,64 @@ router.get('/available-slots', (req, res) => {
   }
 });
 
+router.get('/pet/:petId/last-service-remark', (req, res) => {
+  try {
+    const petId = req.params.petId;
+    const remark = db.prepare(`
+      SELECT id, service_remark, appointment_date, start_time, service_name
+      FROM (
+        SELECT a.id, a.service_remark, a.appointment_date, a.start_time, s.name as service_name
+        FROM appointments a
+        LEFT JOIN services s ON s.id = a.service_id
+        WHERE a.pet_id = ? AND a.status = '已完成' AND a.service_remark IS NOT NULL AND a.service_remark != '' AND a.service_remark_shown = 0
+        ORDER BY a.updated_at DESC
+      )
+      LIMIT 1
+    `).get(petId);
+    
+    if (remark) {
+      db.prepare('UPDATE appointments SET service_remark_shown = 1 WHERE id = ?').run(remark.id);
+    }
+    
+    res.json({ code: 0, data: remark || null });
+  } catch (e) {
+    res.json({ code: -1, message: e.message });
+  }
+});
+
+router.get('/upcoming-soon', (req, res) => {
+  try {
+    const now = dayjs();
+    const today = now.format('YYYY-MM-DD');
+    const currentTime = now.format('HH:mm');
+    const in30Min = now.add(30, 'minute').format('HH:mm');
+    
+    const rows = db.prepare(`
+      SELECT a.*, p.name as pet_name, p.species, p.breed,
+             c.name as customer_name, c.phone as customer_phone,
+             s.name as service_name, s.category, s.price as service_price, s.duration,
+             st.name as staff_name, w.name as workstation_name
+      FROM appointments a
+      LEFT JOIN pets p ON p.id = a.pet_id
+      LEFT JOIN customers c ON c.id = a.customer_id
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN staff st ON st.id = a.staff_id
+      LEFT JOIN workstations w ON w.id = a.workstation_id
+      WHERE a.appointment_date = ? 
+        AND a.status IN ('待确认', '已确认')
+        AND a.start_time >= ?
+        AND a.start_time <= ?
+      ORDER BY a.start_time ASC
+    `).all(today, currentTime, in30Min);
+    
+    const upcomingIds = rows.map(r => r.id);
+    res.json({ code: 0, data: { list: rows, upcomingIds } });
+  } catch (e) {
+    logger.error('查询即将到店预约失败', e);
+    res.json({ code: -1, message: e.message });
+  }
+});
+
 router.get('/', (req, res) => {
   try {
     const { page = 1, pageSize = 20, date, status, keyword } = req.query;
@@ -205,7 +263,7 @@ router.post('/', (req, res) => {
     if (!finalWsId) {
       const wsList = db.prepare('SELECT * FROM workstations WHERE is_active = 1').all();
       const busyWsIds = appointments
-        .filter(apt => hasTimeOverlap(start_time, end_time, apt.start_time, apt.end_time))
+        .filter(apt => hasTimeOverlap(start_time, apt.start_time, apt.end_time))
         .map(apt => apt.workstation_id)
         .filter(Boolean);
       const available = wsList.find(w => !busyWsIds.includes(w.id));
@@ -241,7 +299,7 @@ function generateOrderNo(type) {
 
 router.put('/:id/status', (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, service_remark } = req.body;
     const appointmentId = req.params.id;
     
     const apt = db.prepare(`
@@ -259,8 +317,13 @@ router.put('/:id/status', (req, res) => {
     }
     
     const transaction = db.transaction(() => {
-      db.prepare(`UPDATE appointments SET status=?, updated_at=datetime('now','localtime') WHERE id=?`)
-        .run(status, appointmentId);
+      if (status === '已完成') {
+        db.prepare(`UPDATE appointments SET status=?, service_remark=?, updated_at=datetime('now','localtime') WHERE id=?`)
+          .run(status, service_remark || '', appointmentId);
+      } else {
+        db.prepare(`UPDATE appointments SET status=?, updated_at=datetime('now','localtime') WHERE id=?`)
+          .run(status, appointmentId);
+      }
       
       if (status === '已完成') {
         const existingOrder = db.prepare('SELECT id FROM orders WHERE source_id = ? AND type = ?').get(appointmentId, 'appointment');

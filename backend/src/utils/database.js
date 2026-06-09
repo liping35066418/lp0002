@@ -94,6 +94,8 @@ function initDatabase() {
       end_time TEXT NOT NULL,
       status TEXT DEFAULT '待确认',
       remark TEXT,
+      service_remark TEXT,
+      service_remark_shown INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now','localtime')),
       updated_at TEXT DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (pet_id) REFERENCES pets(id) ON DELETE CASCADE,
@@ -182,6 +184,19 @@ function initDatabase() {
       reward TEXT NOT NULL,
       exchange_date TEXT DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    )`,
+    `CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT,
+      ref_type TEXT,
+      ref_id INTEGER,
+      customer_id INTEGER,
+      is_admin INTEGER DEFAULT 0,
+      is_read INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
     )`
   ];
 
@@ -191,6 +206,14 @@ function initDatabase() {
   });
   
   transaction();
+
+  const alterTables = [
+    `ALTER TABLE appointments ADD COLUMN service_remark TEXT`,
+    `ALTER TABLE appointments ADD COLUMN service_remark_shown INTEGER DEFAULT 0`
+  ];
+  for (const sql of alterTables) {
+    try { db.exec(sql); } catch (e) {}
+  }
 }
 
 function seedInitialData() {

@@ -133,26 +133,70 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailVisible" :title="`宠物档案 - ${detail?.name}`" width="600px">
-      <el-descriptions v-if="detail" :column="2" border>
-        <el-descriptions-item label="名字">{{ detail.name }}</el-descriptions-item>
-        <el-descriptions-item label="种类">{{ detail.species }}</el-descriptions-item>
-        <el-descriptions-item label="品种">{{ detail.breed || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="性别">{{ detail.gender || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="生日">{{ detail.birthday || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="体重">{{ detail.weight ? detail.weight + ' kg' : '-' }}</el-descriptions-item>
-        <el-descriptions-item label="体型">{{ detail.body_type || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="过敏史">{{ detail.allergy || '无' }}</el-descriptions-item>
-        <el-descriptions-item label="主人" :span="2">{{ detail.customer_name }} · {{ detail.customer_phone }}</el-descriptions-item>
-        <el-descriptions-item label="特殊习性" :span="2">{{ detail.special_habit || '无' }}</el-descriptions-item>
-        <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
-      </el-descriptions>
+    <el-dialog v-model="detailVisible" :title="`宠物档案 - ${detail?.name}`" width="780px" top="5vh">
+      <el-tabs v-model="detailTab">
+        <el-tab-pane label="基本信息" name="basic">
+          <el-descriptions v-if="detail" :column="2" border>
+            <el-descriptions-item label="名字">{{ detail.name }}</el-descriptions-item>
+            <el-descriptions-item label="种类">{{ detail.species }}</el-descriptions-item>
+            <el-descriptions-item label="品种">{{ detail.breed || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="性别">{{ detail.gender || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="生日">{{ detail.birthday || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="体重">{{ detail.weight ? detail.weight + ' kg' : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="体型">{{ detail.body_type || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="过敏史">{{ detail.allergy || '无' }}</el-descriptions-item>
+            <el-descriptions-item label="主人" :span="2">{{ detail.customer_name }} · {{ detail.customer_phone }}</el-descriptions-item>
+            <el-descriptions-item label="特殊习性" :span="2">{{ detail.special_habit || '无' }}</el-descriptions-item>
+            <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </el-tab-pane>
+        <el-tab-pane label="服务记录" name="history">
+          <div v-loading="historyLoading" style="min-height: 200px;">
+            <el-empty v-if="!serviceHistory.length && !historyLoading" description="暂无服务记录" />
+            <el-timeline v-else>
+              <el-timeline-item
+                v-for="item in serviceHistory" :key="item.id"
+                :timestamp="`${item.appointment_date} ${item.start_time}`"
+                placement="top"
+                :type="timelineType(item.category)"
+                :hollow="true"
+              >
+                <el-card shadow="never" style="margin-bottom: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <el-tag size="small" :type="categoryType(item.category)">{{ item.category || '服务' }}</el-tag>
+                      <span style="font-size: 15px; font-weight: 600;">{{ item.service_name }}</span>
+                    </div>
+                    <div style="font-size: 15px; font-weight: bold; color: #f56c6c;">¥{{ item.price }}</div>
+                  </div>
+                  <div style="display: flex; gap: 16px; color: #606266; font-size: 13px; margin-bottom: 8px; flex-wrap: wrap;">
+                    <span>美容师：{{ item.staff_name || '-' }}</span>
+                    <span>预约号：{{ item.appointment_no }}</span>
+                  </div>
+                  <el-alert
+                    v-if="item.service_remark"
+                    :title="item.service_remark"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                    style="margin-top: 8px;"
+                  >
+                    <template #title>
+                      <span style="font-weight: 500;">服务备注：</span>{{ item.service_remark }}
+                    </template>
+                  </el-alert>
+                </el-card>
+              </el-timeline-item>
+            </el-timeline>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/modules'
 
@@ -169,10 +213,16 @@ const detailVisible = ref(false)
 const editMode = ref(false)
 const currentId = ref(null)
 const detail = ref(null)
+const detailTab = ref('basic')
+const serviceHistory = ref([])
+const historyLoading = ref(false)
 const form = reactive({
   customer_id: null, name: '', species: '', breed: '', gender: '', birthday: '',
   weight: 0, body_type: '', special_habit: '', allergy: '', photo: '', remark: ''
 })
+
+const categoryType = (c) => ({ '洗护': 'success', '美容': 'warning', 'SPA': 'info' })[c] || 'primary'
+const timelineType = (c) => ({ '洗护': 'success', '美容': 'warning', 'SPA': 'primary' })[c] || ''
 
 const loadList = async () => {
   loading.value = true
@@ -190,6 +240,16 @@ const loadCustomers = async () => {
     const res = await api.allCustomers()
     customerList.value = res.data
   } catch (e) {}
+}
+
+const loadServiceHistory = async (petId) => {
+  historyLoading.value = true
+  try {
+    const res = await api.petServiceHistory(petId)
+    serviceHistory.value = res.data || []
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 const resetSearch = () => {
@@ -238,9 +298,17 @@ const viewDetail = async (row) => {
   try {
     const res = await api.petDetail(row.id)
     detail.value = res.data
+    detailTab.value = 'basic'
     detailVisible.value = true
+    await loadServiceHistory(row.id)
   } catch (e) {}
 }
+
+watch(detailTab, (val) => {
+  if (val === 'history' && detail.value) {
+    loadServiceHistory(detail.value.id)
+  }
+})
 
 onMounted(() => {
   loadList()

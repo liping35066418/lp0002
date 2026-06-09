@@ -16,6 +16,7 @@ export const api = {
 
   pets: (params) => request.get('/pets', { params }),
   petDetail: (id) => request.get(`/pets/${id}`),
+  petServiceHistory: (id) => request.get(`/pets/${id}/service-history`),
   addPet: (data) => request.post('/pets', data),
   updatePet: (id, data) => request.put(`/pets/${id}`, data),
   deletePet: (id) => request.delete(`/pets/${id}`),
@@ -38,6 +39,8 @@ export const api = {
   appointments: (params) => request.get('/appointments', { params }),
   appointmentDetail: (id) => request.get(`/appointments/${id}`),
   availableSlots: (params) => request.get('/appointments/available-slots', { params }),
+  upcomingSoonAppointments: () => request.get('/appointments/upcoming-soon'),
+  petLastServiceRemark: (petId) => request.get(`/appointments/pet/${petId}/last-service-remark`),
   addAppointment: (data) => request.post('/appointments', data),
   updateAppointment: (id, data) => request.put(`/appointments/${id}`, data),
   updateAppointmentStatus: (id, data) => request.put(`/appointments/${id}/status`, data),
@@ -69,5 +72,10 @@ export const api = {
   addProduct: (data) => request.post('/products', data),
   updateProduct: (id, data) => request.put(`/products/${id}`, data),
   updateStock: (id, data) => request.post(`/products/${id}/stock`, data),
-  deleteProduct: (id) => request.delete(`/products/${id}`)
+  deleteProduct: (id) => request.delete(`/products/${id}`),
+
+  notifications: (params) => request.get('/notifications', { params }),
+  unreadNotificationCount: (params) => request.get('/notifications/unread-count', { params }),
+  markNotificationRead: (id) => request.put(`/notifications/${id}/read`),
+  markAllNotificationsRead: (data) => request.put('/notifications/read-all', data)
 }

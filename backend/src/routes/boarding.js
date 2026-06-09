@@ -156,13 +156,34 @@ router.post('/:id/daily-records', (req, res) => {
     const { record_date, food_condition, mood, health_status, walk_info, other_notes } = req.body;
     if (!record_date) return res.json({ code: -1, message: '记录日期必填' });
     
+    const boardingId = req.params.id;
+    const boarding = db.prepare('SELECT * FROM boarding WHERE id = ?').get(boardingId);
+    if (!boarding) return res.json({ code: -1, message: '寄养记录不存在' });
+    
+    const pet = db.prepare('SELECT name, species FROM pets WHERE id = ?').get(boarding.pet_id);
+    
     const result = db.prepare(`
       INSERT INTO boarding_daily_records (boarding_id, record_date, food_condition, mood, health_status, walk_info, other_notes)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(req.params.id, record_date, food_condition || '', mood || '', health_status || '', walk_info || '', other_notes || '');
+    `).run(boardingId, record_date, food_condition || '', mood || '', health_status || '', walk_info || '', other_notes || '');
     
+    const title = `寄养日报 - ${record_date}`;
+    const petName = pet?.name || '宠物';
+    const moodText = mood ? `精神状态：${mood}；` : '';
+    const foodText = food_condition ? `进食情况：${food_condition}；` : '';
+    const healthText = health_status ? `健康：${health_status}；` : '';
+    const notesText = other_notes ? `备注：${other_notes}` : '';
+    const content = `【${petName}】${moodText}${foodText}${healthText}${notesText}`;
+    
+    db.prepare(`
+      INSERT INTO notifications (type, title, content, ref_type, ref_id, customer_id, is_admin)
+      VALUES ('boarding_daily', ?, ?, 'boarding', ?, ?, 1)
+    `).run(title, content, boardingId, boarding.customer_id);
+    
+    logger.info(`寄养日报已生成: 寄养ID=${boardingId}, 日期=${record_date}`);
     res.json({ code: 0, data: { id: result.lastInsertRowid }, message: '记录成功' });
   } catch (e) {
+    logger.error('添加照料记录失败', e);
     res.json({ code: -1, message: e.message });
   }
 });

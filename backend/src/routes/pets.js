@@ -97,4 +97,26 @@ router.delete('/:id', (req, res) => {
   }
 });
 
+router.get('/:id/service-history', (req, res) => {
+  try {
+    const petId = req.params.id;
+    const rows = db.prepare(`
+      SELECT a.id, a.appointment_no, a.appointment_date, a.start_time, a.end_time,
+             a.status, a.service_remark, a.updated_at as completed_at,
+             s.name as service_name, s.category, s.price,
+             st.name as staff_name
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN staff st ON st.id = a.staff_id
+      WHERE a.pet_id = ? AND a.status = '已完成'
+      ORDER BY a.appointment_date DESC, a.start_time DESC
+    `).all(petId);
+    
+    res.json({ code: 0, data: rows });
+  } catch (e) {
+    logger.error('查询宠物服务历史失败', e);
+    res.json({ code: -1, message: e.message });
+  }
+});
+
 module.exports = router;
