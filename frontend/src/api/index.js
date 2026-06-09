@@ -10,6 +10,9 @@ request.interceptors.response.use(
   response => {
     const res = response.data
     if (res.code !== 0) {
+      if (res.conflicts && res.conflicts.length) {
+        return Promise.reject(res)
+      }
       ElMessage.error(res.message || '请求失败')
       return Promise.reject(res)
     }

@@ -56,8 +56,8 @@ router.get('/available-slots', (req, res) => {
       WHERE appointment_date = ? AND status NOT IN ('已取消', '已完成')
     `).all(date);
     
-    const staffList = db.prepare(`SELECT * FROM staff WHERE is_active = 1 AND (skills LIKE ? OR skills LIKE ? OR skills = '')`, 
-      `%${service.category}%`, `%洗护%`).all();
+    const staffList = db.prepare(`SELECT * FROM staff WHERE is_active = 1 AND (skills LIKE ? OR skills LIKE ? OR skills = '')`)
+      .all(`%${service.category}%`, `%洗护%`);
     
     const wsList = db.prepare(`SELECT * FROM workstations WHERE is_active = 1`).all();
     
@@ -157,15 +157,26 @@ router.post('/', (req, res) => {
     const appointment_no = generateOrderNo('AP');
     
     const appointments = db.prepare(`
-      SELECT * FROM appointments 
-      WHERE appointment_date = ? AND status NOT IN ('已取消', '已完成')
+      SELECT a.*, st.name as staff_name, w.name as workstation_name
+      FROM appointments a
+      LEFT JOIN staff st ON st.id = a.staff_id
+      LEFT JOIN workstations w ON w.id = a.workstation_id
+      WHERE a.appointment_date = ? AND a.status NOT IN ('已取消', '已完成')
     `).all(appointment_date);
     
     let finalStaffId = staff_id;
     let finalWsId = workstation_id;
     
+    const conflictDetails = [];
+    
     for (const apt of appointments) {
       if (hasTimeOverlap(start_time, end_time, apt.start_time, apt.end_time)) {
+        if (apt.staff_id) {
+          conflictDetails.push(`时段 ${apt.start_time}-${apt.end_time} 美容师【${apt.staff_name || 'ID:'+apt.staff_id}】已被预约号 ${apt.appointment_no} 占用`);
+        }
+        if (apt.workstation_id) {
+          conflictDetails.push(`时段 ${apt.start_time}-${apt.end_time} 工位【${apt.workstation_name || 'ID:'+apt.workstation_id}】已被预约号 ${apt.appointment_no} 占用`);
+        }
         if (apt.staff_id === finalStaffId) finalStaffId = null;
         if (apt.workstation_id === finalWsId) finalWsId = null;
       }
@@ -178,7 +189,16 @@ router.post('/', (req, res) => {
         .map(apt => apt.staff_id)
         .filter(Boolean);
       const available = staffList.find(s => !busyStaffIds.includes(s.id));
-      if (!available) return res.json({ code: -1, message: '所选时段美容师均已排满' });
+      if (!available) {
+        const busyStaffNames = appointments
+          .filter(apt => hasTimeOverlap(start_time, end_time, apt.start_time, apt.end_time) && apt.staff_id)
+          .map(apt => apt.staff_name || 'ID:'+apt.staff_id);
+        return res.json({ 
+          code: -1, 
+          message: `所选时段美容师均已排满`,
+          conflicts: conflictDetails.length ? conflictDetails : [`所有美容师在 ${start_time}-${end_time} 时段均已被占用`]
+        });
+      }
       finalStaffId = available.id;
     }
     
@@ -189,7 +209,13 @@ router.post('/', (req, res) => {
         .map(apt => apt.workstation_id)
         .filter(Boolean);
       const available = wsList.find(w => !busyWsIds.includes(w.id));
-      if (!available) return res.json({ code: -1, message: '所选时段工位均已占用' });
+      if (!available) {
+        return res.json({ 
+          code: -1, 
+          message: `所选时段工位均已占用`,
+          conflicts: conflictDetails.length ? conflictDetails : [`所有工位在 ${start_time}-${end_time} 时段均已被占用`]
+        });
+      }
       finalWsId = available.id;
     }
     
@@ -208,12 +234,65 @@ router.post('/', (req, res) => {
   }
 });
 
+function generateOrderNo(type) {
+  const prefix = type === 'appointment' ? 'OA' : type === 'boarding' ? 'OB' : type === 'product' ? 'OP' : 'O';
+  return prefix + dayjs().format('YYYYMMDDHHmmss') + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+}
+
 router.put('/:id/status', (req, res) => {
   try {
     const { status } = req.body;
-    db.prepare(`UPDATE appointments SET status=?, updated_at=datetime('now','localtime') WHERE id=?`).run(status, req.params.id);
-    res.json({ code: 0, message: '状态更新成功' });
+    const appointmentId = req.params.id;
+    
+    const apt = db.prepare(`
+      SELECT a.*, s.name as service_name, s.price as service_price, s.category,
+             p.name as pet_name, c.name as customer_name, c.phone
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN pets p ON p.id = a.pet_id
+      LEFT JOIN customers c ON c.id = a.customer_id
+      WHERE a.id = ?
+    `).get(appointmentId);
+    
+    if (!apt) {
+      return res.json({ code: -1, message: '预约不存在' });
+    }
+    
+    const transaction = db.transaction(() => {
+      db.prepare(`UPDATE appointments SET status=?, updated_at=datetime('now','localtime') WHERE id=?`)
+        .run(status, appointmentId);
+      
+      if (status === '已完成') {
+        const existingOrder = db.prepare('SELECT id FROM orders WHERE source_id = ? AND type = ?').get(appointmentId, 'appointment');
+        
+        if (!existingOrder) {
+          const order_no = generateOrderNo('appointment');
+          const total_amount = apt.service_price || 0;
+          const pay_amount = total_amount;
+          
+          const orderResult = db.prepare(`
+            INSERT INTO orders (order_no, customer_id, type, source_id, total_amount, discount_amount, 
+              pay_amount, pay_method, status, remark)
+            VALUES (?, ?, 'appointment', ?, ?, 0, ?, NULL, '待结算', ?)
+          `).run(order_no, apt.customer_id, appointmentId, total_amount, pay_amount, 
+                 `预约服务：${apt.service_name}，宠物：${apt.pet_name}，预约号：${apt.appointment_no}`);
+          
+          const orderId = orderResult.lastInsertRowid;
+          
+          db.prepare(`
+            INSERT INTO order_items (order_id, item_name, item_type, quantity, unit_price, subtotal)
+            VALUES (?, ?, 'service', 1, ?, ?)
+          `).run(orderId, apt.service_name || '美容服务', apt.service_price || 0, apt.service_price || 0);
+        }
+      }
+    });
+    
+    transaction();
+    
+    const resultMsg = status === '已完成' ? '服务已完成，已自动生成待结算订单' : '状态更新成功';
+    res.json({ code: 0, message: resultMsg, orderCreated: status === '已完成' });
   } catch (e) {
+    logger.error('更新预约状态失败', e);
     res.json({ code: -1, message: e.message });
   }
 });

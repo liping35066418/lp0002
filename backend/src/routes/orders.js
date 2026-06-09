@@ -5,12 +5,13 @@ const logger = require('../utils/logger');
 
 router.get('/', (req, res) => {
   try {
-    const { page = 1, pageSize = 20, type, startDate, endDate, keyword } = req.query;
+    const { page = 1, pageSize = 20, type, status, startDate, endDate, keyword } = req.query;
     const offset = (page - 1) * pageSize;
     
     const clauses = [];
     const params = [];
     if (type) { clauses.push('o.type = ?'); params.push(type); }
+    if (status) { clauses.push('o.status = ?'); params.push(status); }
     if (startDate) { clauses.push("date(o.created_at) >= ?"); params.push(startDate); }
     if (endDate) { clauses.push("date(o.created_at) <= ?"); params.push(endDate); }
     if (keyword) {

@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <div class="page-title">预约管理</div>
-      <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon>新建预约</el-button>
+      <el-button type="primary" @click="openDialog"><el-icon><Plus /></el-icon>新建预约</el-button>
     </div>
 
     <div class="search-bar">
@@ -50,19 +50,14 @@
           <el-tag size="small" :type="statusType(row.status)">{{ row.status }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="240" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
-          <el-dropdown @command="(cmd) => changeStatus(row, cmd)" v-if="row.status !== '已完成' && row.status !== '已取消'">
-            <el-button link type="primary">状态变更<el-icon class="el-icon--right"><arrow-down /></el-icon></el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="已确认">确认</el-dropdown-item>
-                <el-dropdown-item command="服务中">开始服务</el-dropdown-item>
-                <el-dropdown-item command="已完成">完成服务</el-dropdown-item>
-                <el-dropdown-item command="已取消" divided>取消预约</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <template v-if="row.status !== '已完成' && row.status !== '已取消'">
+            <el-button link type="success" @click="changeStatus(row, '已确认')" v-if="row.status === '待确认'">确认</el-button>
+            <el-button link type="primary" @click="changeStatus(row, '服务中')" v-if="row.status === '已确认'">开始</el-button>
+            <el-button link type="success" @click="changeStatus(row, '已完成')" v-if="row.status === '服务中'">完成</el-button>
+            <el-button link type="danger" @click="changeStatus(row, '已取消')">取消</el-button>
+          </template>
           <el-button link type="warning" @click="goCheckout(row)" v-if="row.status === '已完成'">去结算</el-button>
           <el-button link type="danger" @click="removeItem(row)">删除</el-button>
         </template>
@@ -76,7 +71,7 @@
       :page-sizes="[10, 20, 50]" @current-change="loadList" @size-change="loadList"
     />
 
-    <el-dialog v-model="dialogVisible" title="新建预约" width="650px">
+    <el-dialog v-model="dialogVisible" title="新建预约" width="700px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="客户" required>
           <el-select v-model="form.customer_id" filterable placeholder="选择客户" style="width: 100%;" @change="onCustomerChange">
@@ -89,9 +84,19 @@
           </el-select>
         </el-form-item>
         <el-form-item label="服务项目" required>
-          <el-select v-model="form.service_id" placeholder="选择服务" style="width: 100%;" @change="loadSlots">
-            <el-option v-for="s in serviceList" :key="s.id" :label="`${s.name} · ${s.duration}分钟 · ¥${s.price}`" :value="s.id" />
-          </el-select>
+          <el-row :gutter="12" style="width: 100%;">
+            <el-col :span="16">
+              <el-select v-model="form.service_id" placeholder="选择服务" style="width: 100%;" @change="onServiceChange">
+                <el-option v-for="s in serviceList" :key="s.id" :label="`${s.name} · ${s.duration}分钟 · ¥${s.price}`" :value="s.id" />
+              </el-select>
+            </el-col>
+            <el-col :span="8" v-if="selectedService">
+              <div style="padding: 8px 12px; background: #f5f7fa; border-radius: 4px; border: 1px solid #ebeef5;">
+                <div style="color: #606266; font-size: 12px;">预估时长：<b style="color: #303133;">{{ selectedService.duration }}分钟</b></div>
+                <div style="color: #606266; font-size: 12px; margin-top: 4px;">预估价格：<b style="color: #f56c6c;">¥{{ selectedService.price }}</b></div>
+              </div>
+            </el-col>
+          </el-row>
         </el-form-item>
         <el-form-item label="预约日期" required>
           <el-date-picker v-model="form.appointment_date" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledDate" style="width: 100%;" @change="loadSlots" />
@@ -128,11 +133,24 @@
         <el-button type="primary" @click="saveItem" :disabled="!form.start_time">提交预约</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="conflictVisible" title="预约时段冲突" width="500px">
+      <div style="color: #606266; margin-bottom: 12px;">
+        <el-alert type="error" :closable="false" show-icon title="所选时段存在以下冲突，无法预约：" />
+      </div>
+      <el-table :data="conflictList" border stripe size="small">
+        <el-table-column label="序号" type="index" width="60" align="center" />
+        <el-table-column label="冲突详情" prop="detail" />
+      </el-table>
+      <template #footer>
+        <el-button type="primary" @click="conflictVisible = false">我知道了</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
@@ -153,11 +171,22 @@ const slots = ref([])
 const slotLoading = ref(false)
 
 const dialogVisible = ref(false)
+const conflictVisible = ref(false)
+const conflictList = ref([])
+
 const form = reactive({ customer_id: null, pet_id: null, service_id: null, appointment_date: '', start_time: '', remark: '' })
+
+const selectedService = computed(() => {
+  if (!form.service_id) return null
+  return serviceList.value.find(s => s.id === form.service_id) || null
+})
 
 const statusType = (s) => ({ '待确认': 'warning', '已确认': 'primary', '服务中': 'success', '已完成': 'info', '已取消': 'danger' })[s] || 'info'
 
-const disabledDate = (d) => dayjs(d.toDate()).isBefore(dayjs().startOf('day'))
+const disabledDate = (d) => {
+  const date = d instanceof Date ? d : (d && typeof d.toDate === 'function' ? d.toDate() : d)
+  return dayjs(date).isBefore(dayjs().startOf('day'))
+}
 
 const loadList = async () => {
   loading.value = true
@@ -191,7 +220,13 @@ const onCustomerChange = async (cid) => {
     const res = await api.customerDetail(cid)
     petList.value = res.data.pets || []
     form.pet_id = null
-  } catch (e) {}
+  } catch (e) {
+    console.error('加载客户宠物失败', e)
+  }
+}
+
+const onServiceChange = () => {
+  loadSlots()
 }
 
 const loadSlots = async () => {
@@ -201,6 +236,8 @@ const loadSlots = async () => {
   try {
     const res = await api.availableSlots({ date: form.appointment_date, serviceId: form.service_id })
     slots.value = res.data
+  } catch (e) {
+    console.error('加载时段失败', e)
   } finally {
     slotLoading.value = false
   }
@@ -215,16 +252,29 @@ const saveItem = async () => {
     ElMessage.success('预约成功')
     dialogVisible.value = false
     loadList()
-  } catch (e) {}
+  } catch (e) {
+    if (e && e.conflicts && e.conflicts.length) {
+      conflictList.value = e.conflicts.map(c => ({ detail: c }))
+      conflictVisible.value = true
+    }
+  }
 }
 
 const changeStatus = async (row, status) => {
   try {
-    await ElMessageBox.confirm(`确定将预约状态变更为【${status}】吗？`, '确认')
-    await api.updateAppointmentStatus(row.id, { status })
-    ElMessage.success('状态更新成功')
+    const actionText = { '已确认': '确认预约', '服务中': '开始服务', '已完成': '完成服务', '已取消': '取消预约' }[status] || '变更状态'
+    await ElMessageBox.confirm(`确定【${actionText}】吗？`, '确认操作')
+    const res = await api.updateAppointmentStatus(row.id, { status })
+    ElMessage.success(res.message || '状态更新成功')
+    if (status === '已完成' && res.orderCreated) {
+      ElMessage.info('已自动生成待结算订单，可在订单管理中查看')
+    }
     loadList()
-  } catch (e) {}
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('状态变更失败', e)
+    }
+  }
 }
 
 const goCheckout = (row) => {
@@ -237,12 +287,16 @@ const removeItem = async (row) => {
     await api.deleteAppointment(row.id)
     ElMessage.success('删除成功')
     loadList()
-  } catch (e) {}
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('删除失败', e)
+    }
+  }
 }
 
 onMounted(async () => {
   loadList()
-  try { customerList.value = (await api.allCustomers()).data } catch (e) {}
-  try { serviceList.value = (await api.services({ active: 1 })).data } catch (e) {}
+  try { customerList.value = (await api.allCustomers()).data } catch (e) { console.error(e) }
+  try { serviceList.value = (await api.services({ active: 1 })).data } catch (e) { console.error(e) }
 })
 </script>

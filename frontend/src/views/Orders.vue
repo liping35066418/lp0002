@@ -11,6 +11,10 @@
         <el-option label="商品订单" value="product" />
         <el-option label="充值" value="充值" />
       </el-select>
+      <el-select v-model="searchForm.status" placeholder="订单状态" clearable style="width: 140px;">
+        <el-option label="待结算" value="待结算" />
+        <el-option label="已完成" value="已完成" />
+      </el-select>
       <el-date-picker v-model="searchForm.dateRange" type="daterange" value-format="YYYY-MM-DD"
                       range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 260px;" />
       <el-input v-model="searchForm.keyword" placeholder="订单号/客户/电话" clearable style="width: 220px;" />
@@ -23,6 +27,11 @@
       <el-table-column prop="type" label="类型" width="100">
         <template #default="{ row }">
           <el-tag size="small" :type="typeTag(row.type)">{{ typeLabel(row.type) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="status" label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag size="small" :type="row.status === '待结算' ? 'warning' : 'success'">{{ row.status }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="客户" width="170">
@@ -49,8 +58,9 @@
       </el-table-column>
       <el-table-column prop="pay_method" label="支付方式" width="90" />
       <el-table-column prop="created_at" label="下单时间" width="170" />
-      <el-table-column label="操作" width="100" fixed="right">
+      <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
+          <el-button link type="warning" @click="goSettle(row)" v-if="row.status === '待结算'">去结算</el-button>
           <el-button link type="primary" @click="viewDetail(row)">详情</el-button>
         </template>
       </el-table-column>
@@ -67,15 +77,18 @@
       <el-descriptions v-if="detail" :column="2" border size="small">
         <el-descriptions-item label="订单号">{{ detail.order_no }}</el-descriptions-item>
         <el-descriptions-item label="类型">{{ typeLabel(detail.type) }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag size="small" :type="detail.status === '待结算' ? 'warning' : 'success'">{{ detail.status }}</el-tag>
+        </el-descriptions-item>
         <el-descriptions-item label="客户">{{ detail.customer_name }} · {{ detail.phone }}</el-descriptions-item>
-        <el-descriptions-item label="支付方式">{{ detail.pay_method }}</el-descriptions-item>
         <el-descriptions-item label="原价">¥{{ Number(detail.total_amount).toFixed(2) }}</el-descriptions-item>
         <el-descriptions-item label="优惠">-¥{{ Number(detail.discount_amount).toFixed(2) }}</el-descriptions-item>
         <el-descriptions-item label="余额抵扣">¥{{ Number(detail.use_balance).toFixed(2) }}</el-descriptions-item>
         <el-descriptions-item label="积分抵扣">{{ detail.use_points }}分</el-descriptions-item>
         <el-descriptions-item label="实付金额"><b style="color: #f56c6c; font-size: 16px;">¥{{ Number(detail.pay_amount).toFixed(2) }}</b></el-descriptions-item>
         <el-descriptions-item label="获得积分">+{{ detail.earn_points }}分</el-descriptions-item>
-        <el-descriptions-item label="下单时间" :span="2">{{ detail.created_at }}</el-descriptions-item>
+        <el-descriptions-item label="支付方式">{{ detail.pay_method || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="下单时间">{{ detail.created_at }}</el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
       </el-descriptions>
       <el-divider>明细</el-divider>
@@ -96,14 +109,16 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api/modules'
 
+const router = useRouter()
 const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
-const searchForm = reactive({ type: '', dateRange: [], keyword: '' })
+const searchForm = reactive({ type: '', status: '', dateRange: [], keyword: '' })
 
 const detailVisible = ref(false)
 const detail = ref(null)
@@ -116,7 +131,7 @@ const loadList = async () => {
   try {
     const params = {
       page: page.value, pageSize: pageSize.value,
-      type: searchForm.type, keyword: searchForm.keyword,
+      type: searchForm.type, status: searchForm.status, keyword: searchForm.keyword,
       startDate: searchForm.dateRange?.[0] || '',
       endDate: searchForm.dateRange?.[1] || ''
     }
@@ -129,9 +144,22 @@ const loadList = async () => {
 }
 
 const resetSearch = () => {
-  Object.assign(searchForm, { type: '', dateRange: [], keyword: '' })
+  Object.assign(searchForm, { type: '', status: '', dateRange: [], keyword: '' })
   page.value = 1
   loadList()
+}
+
+const goSettle = (row) => {
+  router.push({
+    path: '/checkout',
+    query: {
+      type: row.type,
+      sourceId: row.source_id,
+      customerId: row.customer_id,
+      price: row.pay_amount,
+      orderId: row.id
+    }
+  })
 }
 
 const viewDetail = async (row) => {
@@ -139,7 +167,9 @@ const viewDetail = async (row) => {
     const res = await api.orderDetail(row.id)
     detail.value = res.data
     detailVisible.value = true
-  } catch (e) {}
+  } catch (e) {
+    console.error(e)
+  }
 }
 
 onMounted(loadList)

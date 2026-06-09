@@ -53,7 +53,7 @@
       <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="viewDetail(row)">详情</el-button>
-          <el-button link type="primary" @click="addRecord(row)" v-if="row.status === '在住'">每日记录</el-button>
+          <el-button link type="primary" @click="addRecord(row)" v-if="row.status === '在住'">添加照料记录</el-button>
           <el-button link type="warning" @click="checkoutBoarding(row)" v-if="row.status === '在住'">离店结算</el-button>
           <el-button link type="danger" @click="removeItem(row)">删除</el-button>
         </template>
@@ -143,49 +143,42 @@
         <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
       </el-descriptions>
 
-      <el-divider>每日照料记录</el-divider>
-      <el-button type="primary" plain size="small" style="margin-bottom: 12px;" @click="recordForm.boarding_id = detail?.id; recordVisible = true">
-        <el-icon><Plus /></el-icon>新增记录
+      <el-divider>照料记录历史</el-divider>
+      <el-button type="primary" plain size="small" style="margin-bottom: 12px;" @click="addRecord(detail)">
+        <el-icon><Plus /></el-icon>新增照料记录
       </el-button>
       <el-table v-if="detail?.records?.length" :data="detail.records" size="small" border>
-        <el-table-column prop="record_date" label="日期" width="110" />
-        <el-table-column prop="food_condition" label="进食情况" />
-        <el-table-column prop="mood" label="精神状态" width="100" />
-        <el-table-column prop="health_status" label="健康状况" width="100" />
-        <el-table-column prop="walk_info" label="遛弯情况" />
-        <el-table-column prop="other_notes" label="备注" />
+        <el-table-column prop="record_date" label="日期" width="120" />
+        <el-table-column prop="food_condition" label="进食情况" min-width="150" />
+        <el-table-column prop="mood" label="精神状态" width="110" />
+        <el-table-column prop="other_notes" label="备注" min-width="180" />
       </el-table>
-      <el-empty v-else description="暂无每日记录" />
+      <el-empty v-else description="暂无照料记录" />
     </el-dialog>
 
-    <el-dialog v-model="recordVisible" title="新增每日记录" width="550px">
+    <el-dialog v-model="recordVisible" title="新增照料记录" width="500px">
       <el-form :model="recordForm" label-width="100px">
         <el-form-item label="记录日期" required>
           <el-date-picker v-model="recordForm.record_date" type="date" value-format="YYYY-MM-DD" style="width: 100%;" />
         </el-form-item>
-        <el-form-item label="进食情况">
-          <el-input v-model="recordForm.food_condition" placeholder="如：进食正常，食欲良好" />
+        <el-form-item label="进食情况" required>
+          <el-input v-model="recordForm.food_condition" type="textarea" :rows="2" placeholder="请描述进食情况，如：进食正常、食欲良好等" />
         </el-form-item>
-        <el-form-item label="精神状态">
+        <el-form-item label="精神状态" required>
           <el-select v-model="recordForm.mood" style="width: 100%;">
-            <el-option label="活泼" value="活泼" /><el-option label="正常" value="正常" /><el-option label="萎靡" value="萎靡" />
+            <el-option label="活泼好动" value="活泼" />
+            <el-option label="正常平稳" value="正常" />
+            <el-option label="萎靡不振" value="萎靡" />
+            <el-option label="焦虑不安" value="焦虑" />
           </el-select>
         </el-form-item>
-        <el-form-item label="健康状况">
-          <el-select v-model="recordForm.health_status" style="width: 100%;">
-            <el-option label="健康" value="健康" /><el-option label="一般" value="一般" /><el-option label="不适" value="不适" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="遛弯情况">
-          <el-input v-model="recordForm.walk_info" placeholder="遛弯时长、排便情况等" />
-        </el-form-item>
-        <el-form-item label="其他备注">
-          <el-input v-model="recordForm.other_notes" type="textarea" :rows="2" />
+        <el-form-item label="备注">
+          <el-input v-model="recordForm.other_notes" type="textarea" :rows="3" placeholder="如：有特殊反应、用药情况、异常表现等" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="recordVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitRecord">保存</el-button>
+        <el-button type="primary" @click="submitRecord">保存记录</el-button>
       </template>
     </el-dialog>
   </div>
@@ -266,8 +259,11 @@ const saveItem = async () => {
     await api.addBoarding(form)
     ElMessage.success('入店登记成功')
     dialogVisible.value = false
+    page.value = 1
     loadList()
-  } catch (e) {}
+  } catch (e) {
+    console.error('创建寄养失败', e)
+  }
 }
 
 const viewDetail = async (row) => {
