@@ -1,0 +1,23 @@
+{
+  "server": {
+    "port": 8602,
+    "host": "127.0.0.1",
+    "corsOrigin": "http://127.0.0.1:3602"
+  },
+  "database": {
+    "path": "./data/petstore.db",
+    "dialect": "sqlite"
+  },
+  "logging": {
+    "level": "info",
+    "dir": "./logs",
+    "maxSize": "10m",
+    "maxFiles": "30d"
+  },
+  "business": {
+    "workStart": "09:00",
+    "workEnd": "20:00",
+    "slotInterval": 30,
+    "defaultPointsRate": 0.05
+  }
+}
